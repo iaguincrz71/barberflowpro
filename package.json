@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+   "react": "^18.2.0"
+ "react-dom": "^18.2.0"
     "lucide-react": "0.463.0",
     "date-fns": "4.1.0",
     "recharts": "2.13.0"
@@ -22,3 +22,4 @@
     "vite": "^6.2.0"
   }
 }
+fix: downgrade react para 18
