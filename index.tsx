@@ -1,24 +1,35 @@
 
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import App from './App';
 
-const mountApp = () => {
-  if (typeof window === 'undefined') return;
+// Sistema de log para depuração em produção
+window.onerror = function(message, source, lineno, colno, error) {
+  console.error('Erro Crítico BarberFlow:', message, 'em', source, lineno, colno);
+};
 
+const init = () => {
   const rootElement = document.getElementById('root');
-  
-  if (rootElement) {
-    const root = ReactDOM.createRoot(rootElement);
+  if (!rootElement) {
+    console.error("Erro Fatal: Elemento #root não encontrado no DOM.");
+    return;
+  }
+
+  try {
+    const root = createRoot(rootElement);
     root.render(
       <React.StrictMode>
         <App />
       </React.StrictMode>
     );
-  } else {
-    // Caso o script carregue antes do DOM estar pronto, tenta novamente em curto intervalo
-    setTimeout(mountApp, 10);
+  } catch (err) {
+    console.error("Falha ao inicializar React:", err);
   }
 };
 
-mountApp();
+// Garante que o DOM esteja pronto
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}

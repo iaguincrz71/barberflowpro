@@ -19,6 +19,14 @@ import {
 import { formatCurrency, filterTransactionsByDate, groupTransactionsByCategory } from './utils';
 import { format, parseISO, eachDayOfInterval, subDays, isSameDay, differenceInDays } from 'date-fns';
 
+// --- Utilitários de Segurança ---
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 // --- Constantes ---
 const SERVICE_PRICES: Record<string, number> = {
   [ServiceType.CUT]: 25,
@@ -85,40 +93,10 @@ const StatCard = ({ title, value, icon: Icon, color, theme }: any) => (
 // --- Componente Principal ---
 
 export default function App() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        return (localStorage.getItem('barberflow-theme') as Theme) || 'light';
-      }
-    } catch (e) {
-      console.warn("LocalStorage access failed", e);
-    }
-    return 'light';
-  });
-
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const saved = localStorage.getItem('barberflow-transactions-v3');
-        return saved ? JSON.parse(saved) : [];
-      }
-    } catch (e) {
-      console.error("Failed to parse transactions", e);
-    }
-    return [];
-  });
-
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const saved = localStorage.getItem('barberflow-products-v3');
-        return saved ? JSON.parse(saved) : [];
-      }
-    } catch (e) {
-      console.error("Failed to parse products", e);
-    }
-    return [];
-  });
+  const [isMounted, setIsMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>('light');
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
 
   const [currentView, setCurrentView] = useState<ViewType>('DASHBOARD');
   const [dateFilter, setDateFilter] = useState<DateFilter>('MONTH');
@@ -127,47 +105,61 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
+  // Efeito de Inicialização (Prevenção de Tela Branca / Hydration)
   useEffect(() => {
+    setIsMounted(true);
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('barberflow-transactions-v3', JSON.stringify(transactions));
-      }
-    } catch (e) { /* ignore */ }
-  }, [transactions]);
+      const savedTheme = localStorage.getItem('barberflow-theme') as Theme;
+      if (savedTheme) setTheme(savedTheme);
+
+      const savedTransactions = localStorage.getItem('barberflow-transactions-v3');
+      if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
+
+      const savedProducts = localStorage.getItem('barberflow-products-v3');
+      if (savedProducts) setProducts(JSON.parse(savedProducts));
+    } catch (e) {
+      console.error("Falha ao carregar dados do LocalStorage", e);
+    }
+  }, []);
 
   useEffect(() => {
+    if (!isMounted) return;
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('barberflow-products-v3', JSON.stringify(products));
-      }
+      localStorage.setItem('barberflow-transactions-v3', JSON.stringify(transactions));
     } catch (e) { /* ignore */ }
-  }, [products]);
+  }, [transactions, isMounted]);
 
   useEffect(() => {
+    if (!isMounted) return;
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('barberflow-theme', theme);
-        if (theme === 'dark') document.documentElement.classList.add('dark');
-        else document.documentElement.classList.remove('dark');
-      }
+      localStorage.setItem('barberflow-products-v3', JSON.stringify(products));
     } catch (e) { /* ignore */ }
-  }, [theme]);
+  }, [products, isMounted]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (!isMounted) return;
+    try {
+      localStorage.setItem('barberflow-theme', theme);
+      if (theme === 'dark') document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    } catch (e) { /* ignore */ }
+  }, [theme, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && typeof window !== 'undefined') {
       if (isSidebarOpen) {
         document.body.style.overflow = 'hidden';
       } else {
         document.body.style.overflow = 'unset';
       }
     }
-  }, [isSidebarOpen]);
+  }, [isSidebarOpen, isMounted]);
 
   const handleSaveTransaction = (t: Omit<Transaction, 'id'>, id?: string) => {
     if (id) {
       setTransactions(prev => prev.map(item => item.id === id ? { ...t, id } : item));
     } else {
-      setTransactions(prev => [{ ...t, id: crypto.randomUUID() }, ...prev]);
+      setTransactions(prev => [{ ...t, id: generateId() }, ...prev]);
     }
     setEditingTransaction(null);
     setCurrentView('STATEMENT');
@@ -190,10 +182,10 @@ export default function App() {
         ...t, date: p.purchaseDate, value: p.value, description: `Produto: ${p.name}`
       } : t));
     } else {
-      const prodId = crypto.randomUUID();
+      const prodId = generateId();
       setProducts(prev => [{ ...p, id: prodId }, ...prev]);
       setTransactions(prev => [{
-        id: crypto.randomUUID(), date: p.purchaseDate, type: TransactionType.EXPENSE,
+        id: generateId(), date: p.purchaseDate, type: TransactionType.EXPENSE,
         category: Category.PRODUCT, value: p.value, description: `Produto: ${p.name}`, relatedId: prodId
       }, ...prev]);
     }
@@ -216,14 +208,22 @@ export default function App() {
   }, [filteredData]);
 
   const chartDaily = useMemo(() => {
-    return eachDayOfInterval({ start: subDays(new Date(), 6), end: new Date() }).map(day => {
-      const dayStr = format(day, 'dd/MM');
-      const val = transactions.filter(t => t.type === TransactionType.INCOME && isSameDay(parseISO(t.date), day)).reduce((s, t) => s + t.value, 0);
-      return { name: dayStr, total: val };
-    });
+    try {
+      return eachDayOfInterval({ start: subDays(new Date(), 6), end: new Date() }).map(day => {
+        const dayStr = format(day, 'dd/MM');
+        const val = transactions.filter(t => t.type === TransactionType.INCOME && isSameDay(parseISO(t.date), day)).reduce((s, t) => s + t.value, 0);
+        return { name: dayStr, total: val };
+      });
+    } catch (err) {
+      return [];
+    }
   }, [transactions]);
 
   const pieData = useMemo(() => groupTransactionsByCategory(filteredData), [filteredData]);
+
+  if (!isMounted) {
+    return null; // Evita erros de disparidade entre servidor e cliente
+  }
 
   const renderDashboard = () => (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
